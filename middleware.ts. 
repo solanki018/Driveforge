@@ -1,0 +1,25 @@
+// // middleware.ts (root directory)
+// import { NextResponse } from 'next/server';
+// import type { NextRequest } from 'next/server';
+
+// const PUBLIC_PATHS = ['/', '/login', '/signup'];
+
+// export async function middleware(request: NextRequest) {
+//   const isPublic = PUBLIC_PATHS.includes(request.nextUrl.pathname);
+  
+//   // Check for Supabase session token in cookies
+//   const token = request.cookies.get('sb-access-token') || 
+//                 request.cookies.get('sb-refresh-token') ||
+//                 request.cookies.get('supabase-auth-token');
+// console.log(token)
+//   // If no token and trying to access protected route, redirect to login
+//   if (!token && !isPublic) {
+//     return NextResponse.redirect(new URL('/login', request.url));
+//   }
+
+//   return NextResponse.next();
+// }
+
+// export const config = {
+//   matcher: ['/dashboard/:path*', '/analytics/:path*'],
+// };

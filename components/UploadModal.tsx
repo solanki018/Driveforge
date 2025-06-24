@@ -46,11 +46,11 @@ export default function UploadModal({
       return;
     }
 
-    const path = `${user.id}/${Date.now()}-${file.name}`;
+    const path = `${user.id}/${Date.now()}-${file.name}`;  // use user ID and timestamp for unique path
 
     const { error } = await supabase.storage
       .from('uploads')
-      .upload(path, file);
+      .upload(path, file);      // upload to 'uploads' bucket
 
     setUploading(false);
 

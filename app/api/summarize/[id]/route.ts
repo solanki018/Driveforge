@@ -1,5 +1,3 @@
-// ✅ File: app/api/summarize/[id]/route.ts
-
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -16,9 +14,22 @@ const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 async function extractText(buffer: Buffer, filename: string): Promise<string> {
   if (filename.endsWith('.pdf')) {
-    const pdfParse = (await import('pdf-parse')).default;
-    const data = await pdfParse(buffer);
-    return data.text;
+    try {
+      // Use pdf-parse which is designed for Node.js environments
+      const pdfParse = (await import('pdf-parse-debugging-disabled')).default;
+      
+      const data = await pdfParse(buffer, {
+        // Disable external resources that might cause issues
+        max: 0, // Parse all pages
+        version: 'v1.10.100'
+      });
+      
+      return data.text;
+    } catch (pdfError: unknown) {
+      console.error('PDF parsing error:', pdfError);
+      const errorMessage = pdfError instanceof Error ? pdfError.message : 'Unknown PDF parsing error';
+      throw new Error(`Failed to parse PDF: ${errorMessage}`);
+    }
   } else if (filename.endsWith('.docx')) {
     const result = await mammoth.extractRawText({ buffer });
     return result.value;
@@ -29,48 +40,41 @@ async function extractText(buffer: Buffer, filename: string): Promise<string> {
   }
 }
 
-// Test version - let's see if this works first
-export async function POST(req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+// ✅ New endpoint: file summarization based on query params
+export async function POST(req: NextRequest) {
   try {
-    // Extract ID from URL manually
-    const url = req.url;
-    const id = url.split('/').pop();
-    
-    console.log('Extracted ID:', id); // Debug log
-    
-    if (!id) {
-      return Response.json({ error: 'ID not found in URL' }, { status: 400 });
+    const { user_id, name, path } = await req.json();
+
+    if (!user_id || !name || !path) {
+      return Response.json({ error: 'Missing file metadata' }, { status: 400 });
     }
 
-    // ⛳ Fetch file metadata from Supabase
-    const { data: fileData, error } = await supabase
-      .from('summaries')
-      .select('*')
-      .eq('id', id)
-      .single();
+    // 🧠 Get public URL of file
+    const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(path);
+    const fileUrl = publicData?.publicUrl;
 
-    if (error || !fileData) {
-      console.log('Supabase error:', error); // Debug log
-      return new Response(JSON.stringify({ error: 'File not found' }), {
-        status: 500,
-      });
+    if (!fileUrl) {
+      return Response.json({ error: 'Unable to generate file URL' }, { status: 400 });
     }
 
-    // ⬇️ Fetch the file from Supabase Storage URL
-    const response = await fetch(fileData.url);
-    const arrayBuffer = await response.arrayBuffer();
-    const text = await extractText(Buffer.from(arrayBuffer), fileData.name);
+    // ⬇️ Download file buffer
+    const fileResponse = await fetch(fileUrl);
+    if (!fileResponse.ok) throw new Error('Failed to download file from storage');
+    const arrayBuffer = await fileResponse.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
 
-    // 🔮 Use Gemini to summarize
-    const geminiRes = await model.generateContent(text);
+    // 📖 Extract text
+    const text = await extractText(buffer, name);
+
+    // ✨ Summarize using Gemini
+    const geminiRes = await model.generateContent('Summarize this: \n' + text);
     const summary = geminiRes.response.text();
 
-    // 💾 Save summary to DB
-    await supabase.from('summaries').update({ summary }).eq('id', id);
+    // 💾 Optional: store in DB if needed
+    // await supabase.from('summaries').insert({ user_id, name, summary });
 
     return Response.json({ summary });
+
   } catch (error: any) {
     console.error('Summarize API Error:', error);
     return Response.json(

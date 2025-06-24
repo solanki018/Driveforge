@@ -28,18 +28,34 @@ export default function RightSidebar({
   const [error, setError] = useState('');
 
   const handleSummarize = async (file: FileSummary) => {
+
+
     setLoading(true);
     setError('');
     setSummary('');
-
+    console.log("🧪 Received file:", file);
     try {
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
-      console.log('file', file)
-      const summary = await getSummaryFromGemini({ file });
-      setSummary(summary);
+      const res = await fetch(`/api/summarize/${file.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: file.user_id,
+          name: file.name,
+          path: file.path
+        }),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to generate summary');
+      }
+
+      setSummary(json.summary); // ✅ fix applied here
+
     } catch (err) {
       console.error(err);
       setError('Something went wrong during summarization.');

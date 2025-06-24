@@ -13,37 +13,34 @@ export default function DashboardPage() {
   const [selectedFile, setSelectedFile] = useState<any | null>(null);
 
   const fetchFiles = async () => {
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
-  if (userError || !user) return;
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-  // Get uploaded file names
-  const { data: storageFiles, error: storageError } = await supabase
-    .storage
-    .from('uploads')
-    .list(user.id + '/', { limit: 100, offset: 0 });
+    if (userError || !user) return;
 
-  if (storageError || !storageFiles) return;
+    // ✅ Step 1: Get files from storage
+    const {
+      data: storageFiles,
+      error: storageError,
+    } = await supabase.storage
+      .from('uploads')
+      .list(user.id + '/', { limit: 100, offset: 0 });
 
-  // Get summaries from Supabase DB
-  const { data: summaries, error: summariesError } = await supabase
-    .from('summaries')
-    .select('*')
-    .eq('user_id', user.id); // use the correct column to filter
+    if (storageError || !storageFiles) return;
 
-  if (summariesError) return;
-
-  // Merge each file with its corresponding summary ID
-  const filesWithId = storageFiles.map((file) => {
-    const matchingSummary = summaries.find((s) => s.name === file.name);
-    return {
+    // ✅ Step 2: Attach path and user_id (needed for Gemini summary)
+    const filesWithMeta = storageFiles.map((file) => ({
       ...file,
-      id: matchingSummary?.id ?? null,
-      summary: matchingSummary?.summary ?? null,
-    };
-  });
+      path: `${user.id}/${file.name}`,
+      user_id: user.id,
+    }));
 
-  setFiles(filesWithId);
-};
+    // ✅ Step 3: Set state
+    setFiles(filesWithMeta);
+  };
+
 
 
   useEffect(() => {
@@ -51,6 +48,7 @@ export default function DashboardPage() {
   }, []);
 
   const handleDropToSidebar = (file: any) => {
+    console.log("📦 File dropped to sidebar:", file);
     setSelectedFile(file);
   };
 

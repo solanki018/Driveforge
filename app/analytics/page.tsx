@@ -1,58 +1,73 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-
 import { supabase } from 'lib/supabaseClient';
-// Update the import path below if your types file is located elsewhere
-import { FileSummary, UserStats } from '../../types';
+import { FileAnalytics, FileSummary, UserStats } from '../../types';
 import UserStatsCard from 'components/UserStatsCard';
 import AnalyticsPanel from 'components/AnalyticsPanel';
+import Link from 'next/link';
+
+type EnhancedStats = {
+  totalFiles: number;
+  summarizedFiles: number;
+  totalSizeGB: number;
+  uploadHistory: Record<string, number>;
+};
 
 export default function AnalyticsPage() {
+  const [analytics, setAnalytics] = useState<FileAnalytics[]>([]);
   const [summaries, setSummaries] = useState<FileSummary[]>([]);
-  const [stats, setStats] = useState<UserStats | null>(null);
+  const [stats, setStats] = useState<EnhancedStats | null>(null);
 
   const fetchAnalytics = async () => {
-    const { data, error } = await supabase
-      .from('summaries')
-      .select('*')
-      .order('created_at', { ascending: true });
+  const { data: files, error: analyticsError } = await supabase
+    .from('file_analytics')
+    .select('*')
+    .order('uploaded_at', { ascending: true });
 
-    if (data) {
-      setSummaries(data);
+  if (analyticsError || !files) return;
 
-      const totalFiles = data.length;
-      const totalWords = data.reduce((sum, file) => sum + (file.wordCount || 0), 0);
-      const averageSummaryLength = Math.round(
-        data.reduce((sum, f) => sum + (f.summaryLength || 0), 0) / totalFiles
-      );
+  const totalFiles = files.length;
+  const summarizedFiles = files.filter((f) => f.summarized === true).length;
 
-      // Format: { "2025-06-21": 2, ... }
-      const uploadHistory: Record<string, number> = {};
-      data.forEach((f) => {
-        const date = new Date(f.created_at).toISOString().split('T')[0];
-        uploadHistory[date] = (uploadHistory[date] || 0) + 1;
-      });
+  const totalSizeBytes = files.reduce((acc, file) => acc + (file.file_size || 0), 0);
+  const totalSizeGB = +(totalSizeBytes / (1024 ** 3)).toFixed(2); // GB
 
-      setStats({ totalFiles, totalWords, averageSummaryLength, uploadHistory });
-    }
+  const uploadHistory: Record<string, number> = {};
+  files.forEach((f) => {
+    const date = new Date(f.uploaded_at).toISOString().split('T')[0];
+    uploadHistory[date] = (uploadHistory[date] || 0) + 1;
+  });
 
-    if (error) console.error(error.message);
-  };
+  setAnalytics(files);
+  setStats({ totalFiles, summarizedFiles, totalSizeGB, uploadHistory });
+};
+
 
   useEffect(() => {
     fetchAnalytics();
   }, []);
 
   return (
-    <main className="p-6 bg-gray-50 min-h-screen">
-      <h1 className="text-2xl font-bold mb-6">📊 Analytics Dashboard</h1>
+    <main className="p-6 bg-gray-950 text-white min-h-screen">
+      {/* 🔵 Header */}
+      <div className="flex items-center justify-between mb-6">
+        <Link href="/dashboard" className="flex items-center space-x-2">
+          <h2 className="text-2xl font-extrabold mb-6 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300">
+            DriveForge
+          </h2>
+        </Link>
+        <h1 className="text-2xl font-bold">📊 Analytics Dashboard</h1>
+      </div>
+
+      {/* 🟩 Stats & Chart */}
       {stats && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
             <UserStatsCard label="Total Files" value={stats.totalFiles} />
-            <UserStatsCard label="Words Summarized" value={stats.totalWords} />
-            <UserStatsCard label="Avg. Summary Length" value={stats.averageSummaryLength} />
+            <UserStatsCard label="Used Storage (GB)" value={stats.totalSizeGB} />
+            <UserStatsCard label="Auto-Generated Summaries" value={stats.summarizedFiles} />
+            <UserStatsCard label="Days with Uploads" value={Object.keys(stats.uploadHistory).length} />
           </div>
           <AnalyticsPanel uploadHistory={stats.uploadHistory} />
         </>

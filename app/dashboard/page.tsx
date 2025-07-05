@@ -1,5 +1,3 @@
-// ✅ app/dashboard/page.tsx
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -20,60 +18,76 @@ export default function DashboardPage() {
 
     if (userError || !user) return;
 
-    // ✅ Step 1: Get files from storage
-    const {
-      data: storageFiles,
-      error: storageError,
-    } = await supabase.storage
+    const { data: storageFiles, error: storageError } = await supabase.storage
       .from('uploads')
-      .list(user.id + '/', { limit: 100, offset: 0 });
+      .list(user.id + '/', { limit: 100 });
 
     if (storageError || !storageFiles) return;
 
-    // ✅ Step 2: Attach path and user_id (needed for Gemini summary)
-    const filesWithMeta = storageFiles.map((file) => ({
-      ...file,
-      path: `${user.id}/${file.name}`,
-      user_id: user.id,
-    }));
+    const filesWithMeta = storageFiles.map((file) => {
+      const originalName = file.name.includes('-')
+        ? file.name.split('-').slice(1).join('-')
+        : file.name;
 
-    // ✅ Step 3: Set state
+      return {
+        ...file,
+        path: `${user.id}/${file.name}`,
+        user_id: user.id,
+        originalName,
+      };
+    });
+
     setFiles(filesWithMeta);
   };
-
-
 
   useEffect(() => {
     fetchFiles();
   }, []);
 
   const handleDropToSidebar = (file: any) => {
-    console.log("📦 File dropped to sidebar:", file);
     setSelectedFile(file);
   };
 
   return (
-    <div className="flex h-screen relative">
+    <div className="flex h-screen relative bg-gradient-to-br from-black via-gray-900 to-gray-800 text-gray-100">
       <Sidebar onFileUploaded={fetchFiles} />
 
-      <div className="flex-1 overflow-y-auto p-6 bg-gray-50 pr-[26rem]">
-        <h1 className="text-2xl font-bold mb-4">📁 Your Files</h1>
+      <main className="flex-1 overflow-y-auto p-6 pr-0 md:pr-[26rem]">
+       
+      
+        
+
         {files.length === 0 ? (
-          <p>No files uploaded yet.</p>
+          <div className="text-center py-20 text-gray-400">
+            <p className="text-5xl mb-4">📂</p>
+            <p className="text-lg">No files uploaded yet</p>
+            <p className="text-sm mt-2">Use the Upload button on the left sidebar</p>
+          </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-5">
             {files.map((file) => (
               <FileCard
                 key={file.name}
                 file={file}
                 draggable
-                onDragStart={() => setSelectedFile(file)}
-                onDelete={fetchFiles} // Re-fetch after deletion
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', JSON.stringify(file));
+                }}
+                onDelete={async () => {
+                  const { error } = await supabase.storage
+                    .from('uploads')
+                    .remove([file.path]);
+                  if (error) {
+                    console.error('Error deleting file:', error);
+                  } else {
+                    fetchFiles(); // Refresh list
+                  }
+                }}
               />
             ))}
           </div>
         )}
-      </div>
+      </main>
 
       <RightSidebar
         file={selectedFile}

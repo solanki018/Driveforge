@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import mammoth from 'mammoth';
+import Tesseract from 'tesseract.js';
 import 'dotenv/config';
 
 const supabase = createClient(
@@ -13,34 +14,36 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 async function extractText(buffer: Buffer, filename: string): Promise<string> {
-  if (filename.endsWith('.pdf')) {
-    try {
-      // Use pdf-parse which is designed for Node.js environments
-      const pdfParse = (await import('pdf-parse-debugging-disabled')).default;
-      
-      const data = await pdfParse(buffer, {
-        // Disable external resources that might cause issues
-        max: 0, // Parse all pages
-        version: 'v1.10.100'
-      });
-      
-      return data.text;
-    } catch (pdfError: unknown) {
-      console.error('PDF parsing error:', pdfError);
-      const errorMessage = pdfError instanceof Error ? pdfError.message : 'Unknown PDF parsing error';
-      throw new Error(`Failed to parse PDF: ${errorMessage}`);
-    }
-  } else if (filename.endsWith('.docx')) {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value;
-  } else if (filename.endsWith('.txt')) {
-    return buffer.toString('utf-8');
-  } else {
-    throw new Error('Unsupported file type');
+  const ext = filename.split('.').pop()?.toLowerCase();
+
+  if (!ext || buffer.length === 0) {
+    throw new Error('Unsupported file or empty buffer.');
   }
+
+  if (ext === 'pdf') {
+    const pdfParse = (await import('pdf-parse')).default;
+    const data = await pdfParse(buffer);
+    return data.text || '';
+  }
+
+  if (ext === 'docx') {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value || '';
+  }
+
+  if (ext === 'txt') {
+    return buffer.toString('utf-8');
+  }
+
+  if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+    const base64Image = `data:image/${ext};base64,${buffer.toString('base64')}`;
+    const result = await Tesseract.recognize(base64Image, 'eng');
+    return result.data.text || '';
+  }
+
+  throw new Error(`Unsupported file type: ${ext}`);
 }
 
-// ✅ New endpoint: file summarization based on query params
 export async function POST(req: NextRequest) {
   try {
     const { user_id, name, path } = await req.json();
@@ -49,32 +52,41 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Missing file metadata' }, { status: 400 });
     }
 
-    // 🧠 Get public URL of file
+    // 🔽 Step 1: Get public URL of uploaded file
     const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(path);
     const fileUrl = publicData?.publicUrl;
 
     if (!fileUrl) {
-      return Response.json({ error: 'Unable to generate file URL' }, { status: 400 });
+      return Response.json({ error: 'Failed to get public URL from Supabase' }, { status: 400 });
     }
 
-    // ⬇️ Download file buffer
-    const fileResponse = await fetch(fileUrl);
-    if (!fileResponse.ok) throw new Error('Failed to download file from storage');
-    const arrayBuffer = await fileResponse.arrayBuffer();
+    // 🔽 Step 2: Fetch file from public URL
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      throw new Error('Unable to download file from Supabase storage.');
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // 📖 Extract text
-    const text = await extractText(buffer, name);
+    // 🔽 Step 3: Extract text
+    const extractedText = await extractText(buffer, name);
 
-    // ✨ Summarize using Gemini
-    const geminiRes = await model.generateContent('Summarize this: \n' + text);
+    if (!extractedText.trim()) {
+      return Response.json({ error: 'No text found in file' }, { status: 400 });
+    }
+
+    // 🔽 Step 4: Summarize with Gemini
+    const geminiRes = await model.generateContent('Summarize this:\n' + extractedText);
     const summary = geminiRes.response.text();
 
-    // 💾 Optional: store in DB if needed
-    // await supabase.from('summaries').insert({ user_id, name, summary });
+    // 🔽 Step 5: Update analytics in Supabase
+    await supabase
+      .from('file_analytics')
+      .update({ summarized: true })
+      .match({ user_id, file_name: name });
 
     return Response.json({ summary });
-
   } catch (error: any) {
     console.error('Summarize API Error:', error);
     return Response.json(

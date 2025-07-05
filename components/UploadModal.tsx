@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { UploadCloud, X } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// 📄 File icon based on file extension
+// 📄 File icon based on extension
 function getFileIcon(filename?: string) {
   if (!filename) return '📄';
   const ext = filename.split('.').pop()?.toLowerCase();
@@ -46,53 +47,84 @@ export default function UploadModal({
       return;
     }
 
-    const path = `${user.id}/${Date.now()}-${file.name}`;  // use user ID and timestamp for unique path
+    const path = `${user.id}/${Date.now()}-${file.name}`;
+    const { error: uploadError } = await supabase.storage.from('uploads').upload(path, file);
 
-    const { error } = await supabase.storage
-      .from('uploads')
-      .upload(path, file);      // upload to 'uploads' bucket
+    if (uploadError) {
+      setError(uploadError.message || 'Upload failed');
+      setUploading(false);
+      return;
+    }
+
+    // ✅ Insert into file_analytics table
+    const { error: insertError } = await supabase.from('file_analytics').insert({
+      user_id: user.id,
+      file_name: file.name,
+      file_type: file.type,
+      file_size: file.size,                 // for storage usage
+      path,                                 // file location in storage
+      summarized: false,
+      uploaded_at: new Date().toISOString() // for history chart
+    });
+
+    if (insertError) {
+      setError(insertError.message || 'Failed to save analytics');
+      setUploading(false);
+      return;
+    }
 
     setUploading(false);
-
-    if (error) {
-      setError(error.message || 'Upload failed');
-    } else {
-      onUpload();
-      onClose();
-    }
+    onUpload(); // Refresh UI
+    onClose();  // Close modal
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded shadow-lg w-full max-w-md">
-        <h2 className="text-xl font-bold mb-4">Upload & Summarize File</h2>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-gradient-to-br from-gray-900 to-gray-800 text-white p-6 rounded-2xl shadow-2xl w-full max-w-md relative border border-gray-700">
+        {/* ❌ Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 text-gray-400 hover:text-red-400 transition"
+        >
+          <X size={18} />
+        </button>
 
+        <h2 className="text-2xl font-semibold mb-4 text-center text-blue-400">
+          Upload a File
+        </h2>
+
+        {/* 📤 File input */}
         <input
           type="file"
-          accept=".txt,.pdf,.docx"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
-          className="mb-4 w-full"
+          className="block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 transition mb-4"
         />
 
-        {/* Preview selected file safely */}
+        {/* 📄 File name preview */}
         {file && (
-          <div className="flex items-center mb-4 text-sm text-gray-700">
-            <span className="mr-2 text-lg">{getFileIcon(file.name)}</span>
+          <div className="flex items-center gap-2 text-sm text-gray-200 mb-3 truncate">
+            <span className="text-xl">{getFileIcon(file.name)}</span>
             <span className="truncate">{file.name}</span>
           </div>
         )}
 
-        {error && <p className="text-red-500 text-sm">{error}</p>}
+        {/* ⚠️ Error message */}
+        {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
 
-        <div className="flex justify-end space-x-3">
-          <button onClick={onClose} className="px-4 py-2 bg-gray-300 rounded">
+        {/* ✅ Action buttons */}
+        <div className="flex justify-end gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-md bg-gray-700 hover:bg-gray-600 transition text-sm font-medium"
+          >
             Cancel
           </button>
           <button
             onClick={handleUpload}
-            className="px-4 py-2 bg-blue-600 text-white rounded"
-            disabled={uploading || !file}
+            disabled={!file || uploading}
+            className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 transition text-sm font-medium flex items-center gap-2 disabled:opacity-50"
           >
+            <UploadCloud size={16} />
             {uploading ? 'Uploading...' : 'Upload'}
           </button>
         </div>

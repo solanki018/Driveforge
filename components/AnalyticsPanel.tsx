@@ -1,4 +1,5 @@
-import { Line } from 'react-chartjs-2';
+'use client';
+
 import {
   Chart as ChartJS,
   LineElement,
@@ -9,6 +10,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
+import { Line } from 'react-chartjs-2';
 
 ChartJS.register(LineElement, CategoryScale, LinearScale, PointElement, Title, Tooltip, Legend);
 
@@ -27,7 +29,7 @@ export default function AnalyticsPanel({
         label: 'Uploads per Day',
         data: values,
         fill: false,
-        borderColor: '#3B82F6',
+        borderColor: '#60A5FA',
         tension: 0.3,
       },
     ],
@@ -37,12 +39,16 @@ export default function AnalyticsPanel({
     responsive: true,
     plugins: {
       legend: { display: false },
-      title: { display: true, text: 'Upload History' },
+      title: { display: true, text: 'Upload History', color: '#ffffff' },
+    },
+    scales: {
+      x: { ticks: { color: '#ffffff' } },
+      y: { ticks: { color: '#ffffff' } },
     },
   };
 
   return (
-    <div className="bg-white p-4 rounded shadow">
+    <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
       <Line data={data} options={options} />
     </div>
   );
